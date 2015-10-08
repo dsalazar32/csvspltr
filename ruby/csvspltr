@@ -13,8 +13,7 @@ class Csvspltr < Thor
   LONGDESC
   def splt(file)
     begin
-      pages, page = [], []
-      perpg   = 6014
+      perpg, pages, page = 6014, [], []
       horizon = perpg
       File.open(file, 'r') do |fbuf|
         fbuf.each do |line|
@@ -23,11 +22,20 @@ class Csvspltr < Thor
           if lineno == horizon
             pages << page; page = []
             horizon = perpg * (pages.length + 1)
+            CsvJoin.generate("BOOM")
           end
         end
       end
     rescue Errno::ENOENT => e
       puts "#{e.message}"
+    end
+  end
+
+  class CsvJoin
+    class << self
+      def generate(arr)
+        puts "THREADED || SYNCHRONOUS"
+      end
     end
   end
 end
