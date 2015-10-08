@@ -1,0 +1,20 @@
+require 'csv'
+
+desc 'Turn large files into a group of smaller ones'
+task :page_it, [:file, :lines] do |t, args|
+  count = 0 
+  csvpath = args[:file]
+  filepath = "#{File.dirname(csvpath)}/paged"
+  filename, ext = File.basename(csvpath).split('.')
+  FileUtils.mkdir_p(filepath)
+  CSV.open(csvpath).each_slice(args[:lines].to_i) do |batch|
+    count = count + 1
+    file = "#{filename}_%002d.#{ext}" % count
+    CSV.open(File.join(filepath, file), "wb") do |csv|
+      batch.each do |row|
+        puts row
+        csv << row
+      end
+    end
+  end
+end
