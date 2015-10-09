@@ -1,9 +1,12 @@
 #!/usr/bin/env ruby
 require 'thor'
 require 'csv'
+require 'thread'
 require 'pry'
+require 'benchmark'
 
 class Csvspltr < Thor
+  attr_accessor :pager
   desc "splt FILE", "paginates csvs"
   long_desc <<-LONGDESC 
     `csvspltr splt FILE` will split up a csv document into 
@@ -13,51 +16,101 @@ class Csvspltr < Thor
   LONGDESC
   def splt(file)
     begin
-      perpg, pages, page = 6014, [], []
-      horizon = perpg
-      File.open(file, 'r') do |fbuf|
-        fbuf.each do |line|
-          lineno = fbuf.lineno
-          page << line.gsub("\r\n", "")
-          if lineno == horizon
-            pages << page; page = []
-            horizon = perpg * (pages.length + 1)
-            CsvJoin.generate("BOOM")
+      # NOTE: Benchmarking different combinations shows
+      # that more threads doesn't mean faster...
+      puts Benchmark.measure { 
+        perpg, pages, page = 1048575, 1, []
+        horizon = perpg
+        @runners = Sprntr.new(true, 2)
+        File.open(file, 'r') do |fbuf|
+          fbuf.each do |line|
+            lineno = fbuf.lineno
+            page << line
+            if lineno == horizon || fbuf.eof?
+              payload, page, pageno = page, [], pages
+              @runners.run -> { flush_to_file({thread: Thread.current, file: filename(file, pageno), content: payload}) }
+              pages = pages + 1
+              horizon = perpg * pages
+            end
           end
         end
-      end
+        @runners.finish!
+      }
     rescue Errno::ENOENT => e
       puts "#{e.message}"
     end
   end
 
-  class CsvJoin
-    class << self
-      def generate(arr)
-        puts "THREADED || SYNCHRONOUS"
+  class Sprntr
+    attr_reader :threads, :async, :pool
+
+    def initialize(async=false, cnt=1)
+      @async = async && cnt > 1
+      runners(cnt) if @async
+    end
+
+    def run(func)
+      @async ? asyncrun(func) : func.call
+    end
+
+    def finish!
+      return true if !@async
+      sleep 0.01 while !idle?
+      idle?
+    end
+    
+    private
+    def idle?
+      @pool.num_waiting == @threads.count
+    end
+
+    def asyncrun(func)
+      @pool.push(func)
+    end
+
+    def runners(cnt)
+      @pool, @threads = Queue.new, []
+      cnt.times do
+        @threads << Thread.new(&method(:running))
       end
+    end
+
+    def running
+      loop do
+        callable = @pool.pop
+        begin
+          callable.call
+        rescue Exception => e
+          $stderr.puts e.class.name
+          $stderr.puts e.message 
+        end
+      end
+    end
+  end
+
+  private
+  def filename(path, idx)
+    @fpath ||= filepath(path)
+    @fptrn ||= fileptrn(path)
+    File.join(@fpath, (@fptrn % idx)).gsub(" ", "_")
+  end
+
+  def filepath(path)
+    fpath = "#{File.dirname(path)}/paged"
+    FileUtils.mkdir_p(fpath) 
+    fpath
+  end
+
+  def fileptrn(path)
+    filename, ext = File.basename(path).split('.')
+    "#{filename}_%00004d.#{ext}"
+  end
+
+  def flush_to_file(opts)
+    File.open(opts[:file], "a+") do |fbuf|
+      opts[:content].each { |line| fbuf.write(line) }
     end
   end
 end
 
 Csvspltr.start(ARGV)
-
-# desc 'Turn large files into a group of smaller ones'
-# task :page_it, [:file, :lines] do |t, args|
-#   count = 0 
-#   csvpath = args[:file]
-#   filepath = "#{File.dirname(csvpath)}/paged"
-#   filename, ext = File.basename(csvpath).split('.')
-#   FileUtils.mkdir_p(filepath)
-#   CSV.open(csvpath).each_slice(args[:lines].to_i) do |batch|
-#     count = count + 1
-#     file = "#{filename}_%002d.#{ext}" % count
-#     CSV.open(File.join(filepath, file), "wb") do |csv|
-#       batch.each do |row|
-#         puts row
-#         csv << row
-#       end
-#     end
-#   end
-# end
-#
