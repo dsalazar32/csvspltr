@@ -45,7 +45,7 @@ class Csvspltr < Thor
     attr_reader :threads, :async, :pool
 
     def initialize(async=false, cnt=1)
-      @async = async && cnt > 1
+      @async = async
       runners(cnt) if @async
     end
 
