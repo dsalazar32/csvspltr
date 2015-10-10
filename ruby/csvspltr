@@ -19,19 +19,13 @@ class Csvspltr < Thor
       # NOTE: Benchmarking different combinations shows
       # that more threads doesn't mean faster...
       puts Benchmark.measure { 
-        perpg, pages, page = 1048575, 1, []
+        perpg, pgno, page = 1048575, 1, []
         horizon = perpg
-        @runners = Sprntr.new(true, 2)
-        File.open(file, 'r') do |fbuf|
+        @runners = Sprntr.new(false, 3)
+        File.open(file, "r") do |fbuf|
           fbuf.each do |line|
-            lineno = fbuf.lineno
-            page << line
-            if lineno == horizon || fbuf.eof?
-              payload, page, pageno = page, [], pages
-              @runners.run -> { flush_to_file({thread: Thread.current, file: filename(file, pageno), content: payload}) }
-              pages = pages + 1
-              horizon = perpg * pages
-            end
+            pgno = flush_to_file(file, pgno, line, (fbuf.lineno == horizon || fbuf.eof?))
+            horizon = perpg * pgno
           end
         end
         @runners.finish!
@@ -39,6 +33,42 @@ class Csvspltr < Thor
     rescue Errno::ENOENT => e
       puts "#{e.message}"
     end
+  end
+
+  private
+  def flush_to_file(fname, pgno, line, flush=false)
+    @page ||= {filename: filename(fname, pgno), lines: []}
+    @page[:lines] << line
+    if flush
+      payload = @page
+      @runners.run Proc.new { 
+        File.open(payload[:filename], "a+") do |fbuf|
+          payload[:lines].each do |line|
+            fbuf.write(line)
+          end
+        end
+      }
+      @page = nil
+      return pgno += 1 
+    end
+    pgno
+  end
+
+  def filename(path, idx)
+    @fpath ||= filepath(path)
+    @fptrn ||= fileptrn(path)
+    File.join(@fpath, (@fptrn % idx)).gsub(" ", "_")
+  end
+
+  def filepath(path)
+    fpath = "#{File.dirname(path)}/paged"
+    FileUtils.mkdir_p(fpath) 
+    fpath
+  end
+
+  def fileptrn(path)
+    filename, ext = File.basename(path).split('.')
+    "#{filename}_%00004d.#{ext}"
   end
 
   class Sprntr
@@ -55,11 +85,10 @@ class Csvspltr < Thor
 
     def finish!
       return true if !@async
-      sleep 0.01 while !idle?
+      sleep 1 while !idle?
       idle?
     end
-    
-    private
+
     def idle?
       @pool.num_waiting == @threads.count
     end
@@ -87,30 +116,7 @@ class Csvspltr < Thor
       end
     end
   end
-
-  private
-  def filename(path, idx)
-    @fpath ||= filepath(path)
-    @fptrn ||= fileptrn(path)
-    File.join(@fpath, (@fptrn % idx)).gsub(" ", "_")
-  end
-
-  def filepath(path)
-    fpath = "#{File.dirname(path)}/paged"
-    FileUtils.mkdir_p(fpath) 
-    fpath
-  end
-
-  def fileptrn(path)
-    filename, ext = File.basename(path).split('.')
-    "#{filename}_%00004d.#{ext}"
-  end
-
-  def flush_to_file(opts)
-    File.open(opts[:file], "a+") do |fbuf|
-      opts[:content].each { |line| fbuf.write(line) }
-    end
-  end
 end
 
 Csvspltr.start(ARGV)
+
