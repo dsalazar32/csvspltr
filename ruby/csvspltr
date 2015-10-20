@@ -13,29 +13,47 @@ class Csvspltr < Thor
      \x5multiple documents based on a limit of (n) rows.
      \x5 
      \x5The default amount of rows is: 1,048,575
+
+     With --lines option, you define the amount of lines per document you wish to split by.
+
+     With --threads option, concurrency is introduced into the operation. 
+     \x5You define how many, if any, threads you want to divide the task of writing out a file by. 
+
+     With --bench option, benchmarks execution
   LONGDESC
+  option :threads, :type => :numeric, :alias => :t, :default => 0 
+  option :lines,   :type => :numeric, :alias => :l, :default => 1048575
+  option :bench,   :type => :boolean, :alias => :b, :default => false
   def splt(file)
     begin
       # NOTE: Benchmarking different combinations shows
       # that more threads doesn't mean faster...
-      puts Benchmark.measure { 
-        perpg, pgno, page = 1048575, 1, []
-        horizon = perpg
-        @runners = Sprntr.new(false, 3)
-        File.open(file, "r") do |fbuf|
-          fbuf.each do |line|
-            pgno = flush_to_file(file, pgno, line, (fbuf.lineno == horizon || fbuf.eof?))
-            horizon = perpg * pgno
-          end
-        end
-        @runners.finish!
-      }
+      if options[:bench]
+        puts Benchmark.measure { 
+          execute(file)
+        }
+      else
+        execute(file)
+      end
     rescue Errno::ENOENT => e
       puts "#{e.message}"
     end
   end
 
   private
+  def execute(file)
+    perpg, pgno, page = options[:lines], 1, []
+    horizon = perpg
+    @runners = Sprntr.new(options[:threads] > 0, options[:threads])
+    File.open(file, "r") do |fbuf|
+      fbuf.each do |line|
+        pgno = flush_to_file(file, pgno, line, (fbuf.lineno == horizon || fbuf.eof?))
+        horizon = perpg * pgno
+      end
+    end
+    @runners.finish!
+  end
+
   def flush_to_file(fname, pgno, line, flush=false)
     @page ||= {filename: filename(fname, pgno), lines: []}
     @page[:lines] << line
