@@ -16,8 +16,9 @@ class Csvspltr < Thor
 
      With --lines option, you define the amount of lines per document you wish to split by.
 
-     With --threads option, concurrency is introduced into the operation. 
+     With --threads option, adding some concurrency with an attempt at parallelism. 
      \x5You define how many, if any, threads you want to divide the task of writing out a file by. 
+     Caveat being in Ruby MRI the GIL (Global interpreter Lock) removes the ability to truly parallelize.
 
      With --bench option, benchmarks execution
   LONGDESC
@@ -86,7 +87,7 @@ class Csvspltr < Thor
 
   def fileptrn(path)
     filename, ext = File.basename(path).split('.')
-    "#{filename}_%00004d.#{ext}"
+    "#{filename}_%0000006d.#{ext}"
   end
 
   class Sprntr
