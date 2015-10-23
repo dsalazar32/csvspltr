@@ -2,8 +2,8 @@
 require 'thor'
 require 'csv'
 require 'thread'
-require 'pry'
 require 'benchmark'
+require 'ruby-prof'
 
 class Csvspltr < Thor
   attr_accessor :pager
@@ -21,10 +21,15 @@ class Csvspltr < Thor
      Caveat being in Ruby MRI the GIL (Global interpreter Lock) removes the ability to truly parallelize.
 
      With --bench option, benchmarks execution
+
+     With --prof option, ruby profile the execution
   LONGDESC
   option :threads, :type => :numeric, :alias => :t, :default => 0 
   option :lines,   :type => :numeric, :alias => :l, :default => 1048575
   option :bench,   :type => :boolean, :alias => :b, :default => false
+  option :prof,    :type => :boolean, :alias => :p, :default => false
+
+  FPTRN =  "%s_%0000006d.%s"
   def splt(file)
     begin
       # NOTE: Benchmarking different combinations shows
@@ -33,6 +38,12 @@ class Csvspltr < Thor
         puts Benchmark.measure { 
           execute(file)
         }
+      elsif options[:prof]
+        result = RubyProf.profile do
+          execute(file)
+        end
+        printer = RubyProf::GraphPrinter.new(result)
+        printer.print(STDOUT, {})
       else
         execute(file)
       end
@@ -76,7 +87,7 @@ class Csvspltr < Thor
   def filename(path, idx)
     @fpath ||= filepath(path)
     @fptrn ||= fileptrn(path)
-    File.join(@fpath, (@fptrn % idx)).gsub(" ", "_")
+    File.join(@fpath, (FPTRN % [@fptrn[0], idx, @fptrn[1]])).gsub(" ", "_")
   end
 
   def filepath(path)
@@ -86,8 +97,7 @@ class Csvspltr < Thor
   end
 
   def fileptrn(path)
-    filename, ext = File.basename(path).split('.')
-    "#{filename}_%0000006d.#{ext}"
+    File.basename(path).split('.')
   end
 
   class Sprntr
